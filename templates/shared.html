@@ -1,0 +1,95 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Shared Links – CloudVault Enterprise{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h3 class="fw-bold mb-1"><i class="bi bi-share-fill text-primary me-2"></i> Shared Links</h3>
+        <p class="text-muted small">Manage public and password-protected sharing links created by you.</p>
+    </div>
+</div>
+
+<div class="glass-card p-4">
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0 text-main">
+            <thead>
+                <tr class="text-muted small">
+                    <th>Target Item</th>
+                    <th>Access Type</th>
+                    <th>Permission</th>
+                    <th>Password Protected</th>
+                    <th>Downloads</th>
+                    <th>Created</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for share in my_shares %}
+                    <tr id="share_row_{{ share.id }}">
+                        <td>
+                            <div class="d-flex align-items-center gap-2">
+                                <i class="bi bi-file-earmark-text text-primary"></i>
+                                <span class="fw-semibold">
+                                    {% if share.file_item %}
+                                        {{ share.file_item.name }}
+                                    {% elif share.folder %}
+                                        {{ share.folder.name }}
+                                    {% else %}
+                                        <em>Unknown</em>
+                                    {% endif %}
+                                </span>
+                            </div>
+                        </td>
+                        <td>
+                            <span class="badge bg-info bg-opacity-20 text-info text-capitalize">{{ share.access_type }}</span>
+                        </td>
+                        <td>
+                            <span class="badge bg-secondary text-capitalize">{{ share.permission }}</span>
+                        </td>
+                        <td>
+                            {% if share.password_hash %}
+                                <span class="badge bg-success"><i class="bi bi-lock-fill me-1"></i> Protected</span>
+                            {% else %}
+                                <span class="text-muted small">None</span>
+                            {% endif %}
+                        </td>
+                        <td class="small">{{ share.download_count }} downloads</td>
+                        <td class="small text-muted">{{ share.created_at|date:"M d, Y" }}</td>
+                        <td>
+                            <button class="btn btn-sm btn-outline-danger" onclick="revokeShare({{ share.id }})">
+                                <i class="bi bi-x-circle me-1"></i> Revoke
+                            </button>
+                        </td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="7" class="text-center text-muted py-4">No active share links created yet.</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    function revokeShare(shareId) {
+        if (confirm('Revoke this share link? Users will no longer be able to access it.')) {
+            fetch(`/api/shares/${shareId}/`, {
+                method: 'DELETE',
+                headers: {
+                    'X-CSRFToken': getCookie('csrftoken')
+                }
+            })
+            .then(res => res.json())
+            .then(data => {
+                showToast('Revoked', 'Share link revoked.', 'info');
+                document.getElementById(`share_row_${shareId}`)?.remove();
+            });
+        }
+    }
+</script>
+{% endblock %}

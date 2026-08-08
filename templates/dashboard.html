@@ -1,0 +1,461 @@
+{% extends 'base.html' %}
+{% block title %}Dashboard – CloudVault{% endblock %}
+
+{% block content %}
+<!-- Page Header -->
+<div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-2">
+  <div>
+    <h4 style="font-weight:800;font-size:1.4rem;margin-bottom:.2rem">
+      Good to see you, {{ request.user.first_name|default:request.user.username }}! 👋
+    </h4>
+    <p style="font-size:.875rem;color:var(--text-muted);margin:0">Here's what's happening in your cloud storage today.</p>
+  </div>
+</div>
+
+<!-- Stats Row -->
+<div class="row g-3 mb-4">
+  <div class="col-6 col-lg-3">
+    <div class="stat-card">
+      <div class="stat-icon purple"><i class="bi bi-file-earmark-fill"></i></div>
+      <div>
+        <div class="stat-value">{{ total_files_count }}</div>
+        <div class="stat-label">Total Files</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="stat-card">
+      <div class="stat-icon green"><i class="bi bi-folder-fill"></i></div>
+      <div>
+        <div class="stat-value">{{ total_folders_count }}</div>
+        <div class="stat-label">Total Folders</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="stat-card">
+      <div class="stat-icon blue"><i class="bi bi-hdd-fill"></i></div>
+      <div>
+        <div class="stat-value">{{ user_storage_used_fmt }}</div>
+        <div class="stat-label">Storage Used</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="stat-card">
+      <div class="stat-icon orange"><i class="bi bi-cloud-fill"></i></div>
+      <div>
+        <div class="stat-value">{{ user_storage_free_fmt }}</div>
+        <div class="stat-label">Free Storage</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Chart + Activity -->
+<div class="row g-3 mb-4">
+  <div class="col-12 col-lg-5">
+    <div class="card-cv p-4 h-100">
+      <h6 style="font-weight:700;margin-bottom:1.25rem">
+        <i class="bi bi-pie-chart-fill me-2" style="color:var(--brand-1)"></i>Storage Breakdown
+      </h6>
+      <div style="max-height:240px;position:relative">
+        <canvas id="storagePieChart"></canvas>
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-lg-7">
+    <div class="card-cv p-4 h-100">
+      <h6 style="font-weight:700;margin-bottom:1.25rem">
+        <i class="bi bi-activity me-2" style="color:var(--brand-1)"></i>Recent Activity
+        <span id="activityBadge" class="badge bg-danger ms-2 d-none" style="font-size:.75rem;vertical-align:middle">0</span>
+        <button id="activityPauseBtn" class="btn btn-sm btn-outline-secondary ms-3" type="button" style="font-size:.72rem;padding:.25rem .5rem">Pause</button>
+      </h6>
+      <div style="overflow-x:auto">
+        <table class="cv-table">
+          <thead>
+            <tr>
+              <th>Action</th>
+              <th>IP Address</th>
+              <th>Time</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for log in recent_activities %}
+            <tr>
+              <td>
+                <span class="badge-type badge-document">{{ log.get_action_display }}</span>
+              </td>
+              <td style="color:var(--text-muted);font-size:.8rem">{{ log.ip_address|default:"–" }}</td>
+              <td style="color:var(--text-muted);font-size:.8rem">{{ log.timestamp|date:"M d, H:i" }}</td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="3" style="text-align:center;padding:2rem;color:var(--text-muted)">No activity yet.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Recent Files -->
+<div class="card-cv p-4">
+  <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+    <h6 style="font-weight:700;margin:0">
+      <i class="bi bi-clock-history me-2" style="color:var(--brand-1)"></i>Recent Uploads
+    </h6>
+    <a href="{% url 'files' %}" style="font-size:.82rem;color:var(--brand-1);text-decoration:none;font-weight:600">
+      View all files <i class="bi bi-arrow-right ms-1"></i>
+    </a>
+  </div>
+
+  {% if recent_files %}
+  <div class="items-grid">
+    {% for file in recent_files %}
+    <div class="file-card" ondblclick="openPreviewModal({{ file.id }},'{{ file.name|escapejs }}','{{ file.file_type }}','{{ file.file.url }}')">
+      <div class="d-flex justify-content-between align-items-center">
+        <span class="badge-type badge-{{ file.file_type }}">{{ file.file_type }}</span>
+        <div class="dropdown">
+          <button class="btn-icon" style="width:28px;height:28px;font-size:.85rem" data-bs-toggle="dropdown" type="button">
+            <i class="bi bi-three-dots-vertical"></i>
+          </button>
+          <ul class="dropdown-menu dropdown-menu-end">
+            <li><a class="dropdown-item" href="#" onclick="openPreviewModal({{ file.id }},'{{ file.name|escapejs }}','{{ file.file_type }}','{{ file.file.url }}');return false"><i class="bi bi-eye"></i>Preview</a></li>
+            <li><a class="dropdown-item" href="{% url 'download_file' file.id %}"><i class="bi bi-download"></i>Download</a></li>
+            <li><a class="dropdown-item" href="#" onclick="openShareModal({{ file.id }},'{{ file.name|escapejs }}');return false"><i class="bi bi-share"></i>Share</a></li>
+          </ul>
+        </div>
+      </div>
+
+      {% if file.file_type == 'image' and file.thumbnail %}
+        <img src="{{ file.thumbnail.url }}" class="file-thumb" alt="{{ file.name }}">
+      {% else %}
+        <div class="file-icon-display">
+          <i class="{{ file.icon_class }}"></i>
+        </div>
+      {% endif %}
+
+      <div>
+        <div class="file-name" title="{{ file.name }}">{{ file.name }}</div>
+        <div class="d-flex justify-content-between file-meta mt-1">
+          <span>{{ file.formatted_size }}</span>
+          <span>{{ file.created_at|date:"M d" }}</span>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div style="text-align:center;padding:3rem 1rem">
+    <i class="bi bi-cloud-arrow-up" style="font-size:3.5rem;color:var(--text-muted);display:block;margin-bottom:1rem"></i>
+    <p style="color:var(--text-muted)">No files yet. Click <strong>Upload</strong> to get started!</p>
+  </div>
+  {% endif %}
+</div>
+  <style>
+  .new-activity { animation: slideFade 600ms ease forwards; }
+  @keyframes slideFade { from { transform: translateY(-8px); opacity: 0 } to { transform: none; opacity: 1 } }
+  #activityBadge.d-none { display: none !important; }
+  </style>
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const ctx = document.getElementById('storagePieChart');
+  if (!ctx) return;
+
+  const labels = ['Images','Videos','Audio','PDFs','Documents','Spreadsheets','Archives','Other'];
+  const data = [
+    {{ stats_by_type.image|default:0 }},
+    {{ stats_by_type.video|default:0 }},
+    {{ stats_by_type.audio|default:0 }},
+    {{ stats_by_type.pdf|default:0 }},
+    {{ stats_by_type.document|default:0 }},
+    {{ stats_by_type.spreadsheet|default:0 }},
+    {{ stats_by_type.archive|default:0 }},
+    {{ stats_by_type.other|default:0 }}
+  ];
+
+  const hasData = data.some(v => v > 0);
+
+  new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels,
+      datasets: [{
+        data: hasData ? data : [1],
+        backgroundColor: hasData
+          ? ['#a78bfa','#f87171','#22d3ee','#fca5a5','#93c5fd','#6ee7b7','#94a3b8','#64748b']
+          : ['#1c2333'],
+        borderWidth: 0,
+        hoverOffset: 6
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      cutout: '68%',
+      plugins: {
+        legend: {
+          position: 'right',
+          labels: {
+            color: '#8b949e',
+            font: { size: 11, family: 'Inter' },
+            padding: 10,
+            boxWidth: 12,
+            boxHeight: 12
+          }
+        },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => {
+              if (!hasData) return 'No data';
+              const bytes = ctx.raw;
+              if (!bytes) return `${ctx.label}: 0 B`;
+              const units = ['B','KB','MB','GB'];
+              let b = bytes, i = 0;
+              while (b >= 1024 && i < units.length - 1) { b /= 1024; i++; }
+              return `${ctx.label}: ${b.toFixed(1)} ${units[i]}`;
+            }
+          }
+        }
+      }
+    }
+  });
+});
+</script>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const activityTbody = document.querySelector('table.cv-table tbody');
+  if (!activityTbody) return;
+
+  async function fetchActivities() {
+    try {
+      const res = await fetch('/api/analytics/activities/');
+      if (!res.ok) return;
+      const data = await res.json();
+      // Clear existing rows
+      activityTbody.innerHTML = '';
+      if (!data || data.length === 0) {
+        activityTbody.innerHTML = '<tr><td colspan="3" style="text-align:center;padding:2rem;color:var(--text-muted)">No activity yet.</td></tr>';
+        return;
+      }
+
+      data.slice(0,20).forEach(log => {
+        const tr = document.createElement('tr');
+        const actionTd = document.createElement('td');
+        const badge = document.createElement('span');
+        badge.className = 'badge-type badge-document';
+        badge.textContent = log.action;
+        actionTd.appendChild(badge);
+
+        const ipTd = document.createElement('td');
+        ipTd.style.color = 'var(--text-muted)';
+        ipTd.style.fontSize = '.8rem';
+        ipTd.textContent = log.ip_address || '–';
+
+        const timeTd = document.createElement('td');
+        timeTd.style.color = 'var(--text-muted)';
+        timeTd.style.fontSize = '.8rem';
+        timeTd.textContent = log.timestamp;
+
+        tr.appendChild(actionTd);
+        tr.appendChild(ipTd);
+        tr.appendChild(timeTd);
+        activityTbody.appendChild(tr);
+      });
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  // Enhanced fetching with pause, badge count, and animation
+  let paused = false;
+  let pendingCount = 0;
+  let lastSeenId = null;
+
+  const badgeEl = document.getElementById('activityBadge');
+  const pauseBtn = document.getElementById('activityPauseBtn');
+
+  function setBadge(n) {
+    if (!badgeEl) return;
+    if (n > 0) {
+      badgeEl.textContent = n;
+      badgeEl.classList.remove('d-none');
+    } else {
+      badgeEl.textContent = '0';
+      badgeEl.classList.add('d-none');
+    }
+  }
+
+  pauseBtn?.addEventListener('click', () => {
+    paused = !paused;
+    pauseBtn.textContent = paused ? 'Resume' : 'Pause';
+    if (!paused) {
+      // apply pending updates immediately
+      fetchActivities(true);
+      pendingCount = 0;
+      setBadge(0);
+    }
+  });
+
+  async function fetchActivities(applyPending=false) {
+    try {
+      const res = await fetch('/api/analytics/activities/');
+      if (!res.ok) return;
+      const data = await res.json();
+
+      if (!data || data.length === 0) {
+        activityTbody.innerHTML = '<tr><td colspan="3" style="text-align:center;padding:2rem;color:var(--text-muted)">No activity yet.</td></tr>';
+        return;
+      }
+
+      const newestId = data[0].id;
+      if (lastSeenId === null) {
+        // initial load
+        activityTbody.innerHTML = '';
+        data.slice(0,20).forEach(log => appendRow(log, false));
+        lastSeenId = newestId;
+        return;
+      }
+
+      if (newestId === lastSeenId) {
+        // nothing new
+        return;
+      }
+
+      // find new items before lastSeenId
+      const newItems = [];
+      for (const log of data) {
+        if (log.id === lastSeenId) break;
+        newItems.push(log);
+      }
+
+      if (newItems.length === 0) return;
+
+      if (paused && !applyPending) {
+        pendingCount += newItems.length;
+        setBadge(pendingCount);
+      } else {
+        // prepend new items so newest on top
+        for (let i = newItems.length - 1; i >= 0; i--) {
+          prependRow(newItems[i]);
+        }
+        // trim to 20 rows
+        while (activityTbody.children.length > 20) activityTbody.removeChild(activityTbody.lastChild);
+        lastSeenId = newestId;
+        pendingCount = 0;
+        setBadge(0);
+      }
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  function appendRow(log, animate=false) {
+    const tr = document.createElement('tr');
+    const actionTd = document.createElement('td');
+    const badge = document.createElement('span');
+    badge.className = 'badge-type badge-document';
+    badge.textContent = log.action;
+    actionTd.appendChild(badge);
+
+    const ipTd = document.createElement('td');
+    ipTd.style.color = 'var(--text-muted)';
+    ipTd.style.fontSize = '.8rem';
+    ipTd.textContent = log.ip_address || '–';
+
+    const timeTd = document.createElement('td');
+    timeTd.style.color = 'var(--text-muted)';
+    timeTd.style.fontSize = '.8rem';
+    timeTd.textContent = log.timestamp;
+
+    tr.appendChild(actionTd);
+    tr.appendChild(ipTd);
+    tr.appendChild(timeTd);
+    if (animate) tr.classList.add('new-activity');
+    activityTbody.appendChild(tr);
+  }
+
+  function prependRow(log) {
+    const tr = document.createElement('tr');
+    const actionTd = document.createElement('td');
+    const badge = document.createElement('span');
+    badge.className = 'badge-type badge-document';
+    badge.textContent = log.action;
+    actionTd.appendChild(badge);
+
+    const ipTd = document.createElement('td');
+    ipTd.style.color = 'var(--text-muted)';
+    ipTd.style.fontSize = '.8rem';
+    ipTd.textContent = log.ip_address || '–';
+
+    const timeTd = document.createElement('td');
+    timeTd.style.color = 'var(--text-muted)';
+    timeTd.style.fontSize = '.8rem';
+    timeTd.textContent = log.timestamp;
+
+    tr.appendChild(actionTd);
+    tr.appendChild(ipTd);
+    tr.appendChild(timeTd);
+    tr.classList.add('new-activity');
+    activityTbody.insertBefore(tr, activityTbody.firstChild);
+  }
+
+  // Try WebSocket first, fall back to polling
+  const MAX_BADGE = 99;
+  const pollInterval = parseInt(document.body.dataset.pollInterval, 10) || 10000;
+
+  let wsConnected = false;
+  let ws;
+
+  function setPendingBadge(n) {
+    // Update the visible activity badge used in the template (id=activityBadge)
+    const el = document.getElementById('activityBadge');
+    if (!el) return;
+    if (!n || n <= 0) {
+      el.classList.add('d-none');
+      el.textContent = '';
+      return;
+    }
+    el.classList.remove('d-none');
+    el.textContent = (n > MAX_BADGE) ? `${MAX_BADGE}+` : String(n);
+  }
+
+  function tryWebSocket() {
+    try {
+      const protocol = (location.protocol === 'https:') ? 'wss' : 'ws';
+      const wsUrl = `${protocol}://${location.host}/ws/activities/`;
+      ws = new WebSocket(wsUrl);
+      ws.addEventListener('open', () => { wsConnected = true; console.info('Activity WS connected'); });
+      ws.addEventListener('message', (ev) => {
+        try {
+          const log = JSON.parse(ev.data);
+          // If paused, accumulate pending count, otherwise insert immediately
+          if (paused) {
+            pendingCount = Math.min(pendingCount + 1, MAX_BADGE + 1);
+            setBadge(pendingCount);
+          } else {
+            prependRow(log);
+            // Trim to 20 rows and update lastSeenId
+            while (activityTbody.children.length > 20) activityTbody.removeChild(activityTbody.lastChild);
+            if (log.id) lastSeenId = log.id;
+          }
+        } catch (e) { /* ignore malformed messages */ }
+      });
+      ws.addEventListener('close', () => { wsConnected = false; console.info('Activity WS closed'); setTimeout(tryWebSocket, 5000); });
+      ws.addEventListener('error', () => { wsConnected = false; ws.close(); });
+    } catch (e) { wsConnected = false; }
+  }
+
+  tryWebSocket();
+
+  // Polling fallback only used when WebSocket isn't connected
+  fetchActivities();
+  setInterval(() => { if (!wsConnected) fetchActivities(); }, pollInterval);
+});
+</script>
+{% endblock %}

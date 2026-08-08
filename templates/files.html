@@ -1,0 +1,225 @@
+{% extends 'base.html' %}
+{% block title %}My Files – CloudVault{% endblock %}
+
+{% block content %}
+<input type="hidden" id="currentFolderId" value="{{ current_folder.id|default:'' }}">
+
+<!-- Header & Breadcrumbs -->
+<div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+  <div>
+    <nav>
+      <ol class="breadcrumb mb-1">
+        <li class="breadcrumb-item">
+          <a href="{% url 'files' %}"><i class="bi bi-hdd-rack me-1"></i>My Files</a>
+        </li>
+        {% for ancestor in ancestors %}
+          <li class="breadcrumb-item">
+            <a href="{% url 'files' %}?folder={{ ancestor.id }}">{{ ancestor.name }}</a>
+          </li>
+        {% endfor %}
+        {% if current_folder %}
+          <li class="breadcrumb-item active">{{ current_folder.name }}</li>
+        {% endif %}
+      </ol>
+    </nav>
+    <p style="font-size:.8rem;color:var(--text-muted);margin:0">
+      {{ folders.count }} folder{{ folders.count|pluralize }}, {{ files.count }} file{{ files.count|pluralize }}
+    </p>
+  </div>
+
+  <div class="d-flex gap-2 flex-wrap">
+    <button class="btn-secondary-cv btn-sm" onclick="compressSelectedFiles()" type="button">
+      <i class="bi bi-file-zip"></i> Compress ZIP
+    </button>
+  </div>
+</div>
+
+<!-- Category Filters -->
+<div class="d-flex gap-2 flex-wrap mb-4" style="font-size:.8rem">
+  {% for ftype, flabel in filter_choices %}
+  <a href="{% url 'files' %}?type={{ ftype }}{% if current_folder %}&folder={{ current_folder.id }}{% endif %}{% if search_query %}&q={{ search_query }}{% endif %}"
+     style="padding:4px 14px;border-radius:20px;text-decoration:none;font-weight:600;transition:all .2s;
+            {% if filter_type == ftype %}background:var(--brand-1);color:#fff{% else %}background:var(--bg-card);color:var(--text-muted);border:1px solid var(--border-color){% endif %}">
+    {{ flabel }}
+  </a>
+  {% endfor %}
+  {% if filter_type %}
+  <a href="{% url 'files' %}{% if current_folder %}?folder={{ current_folder.id }}{% endif %}"
+     style="padding:4px 14px;border-radius:20px;text-decoration:none;font-weight:600;background:var(--bg-card);color:var(--text-muted);border:1px solid var(--border-color)">
+    <i class="bi bi-x"></i> Clear
+  </a>
+  {% endif %}
+</div>
+
+<!-- Folders -->
+{% if folders %}
+<h6 style="font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);margin-bottom:.75rem">
+  <i class="bi bi-folder me-1"></i>Folders
+</h6>
+<div class="items-grid mb-4">
+  {% for folder in folders %}
+  <div class="folder-card" onclick="window.location.href='{% url 'files' %}?folder={{ folder.id }}'">
+    <div class="folder-icon-box" style="color:{{ folder.color }}">
+      <i class="bi bi-folder-fill"></i>
+    </div>
+    <div style="min-width:0">
+      <div style="font-weight:600;font-size:.875rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ folder.name }}</div>
+      <div style="font-size:.75rem;color:var(--text-muted)">{{ folder.subfolders.count }} folders, {{ folder.files.count }} files</div>
+    </div>
+    <div class="ms-auto dropdown" onclick="event.stopPropagation()">
+      <button class="btn-icon" style="width:28px;height:28px;font-size:.85rem" data-bs-toggle="dropdown" type="button">
+        <i class="bi bi-three-dots-vertical"></i>
+      </button>
+      <ul class="dropdown-menu dropdown-menu-end">
+        <li><a class="dropdown-item" href="#" onclick="deleteFolderItem({{ folder.id }});return false"><i class="bi bi-trash"></i>Move to Trash</a></li>
+      </ul>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<!-- Files -->
+<h6 style="font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);margin-bottom:.75rem">
+  <i class="bi bi-file-earmark me-1"></i>Files
+</h6>
+
+{% if files %}
+<div class="items-grid">
+  {% for file in files %}
+  <div class="file-card" id="file-card-{{ file.id }}"
+       ondblclick="openPreviewModal({{ file.id }},'{{ file.name|escapejs }}','{{ file.file_type }}','{{ file.file.url }}')">
+
+    <div class="d-flex justify-content-between align-items-center">
+      <div class="d-flex align-items-center gap-2">
+        <input type="checkbox" class="form-check-input file-check" value="{{ file.id }}" onclick="event.stopPropagation()">
+        <span class="badge-type badge-{{ file.file_type }}">{{ file.file_type }}</span>
+      </div>
+      <div class="dropdown" onclick="event.stopPropagation()">
+        <button class="btn-icon" style="width:28px;height:28px;font-size:.85rem" data-bs-toggle="dropdown" type="button">
+          <i class="bi bi-three-dots-vertical"></i>
+        </button>
+        <ul class="dropdown-menu dropdown-menu-end">
+          <li><a class="dropdown-item" href="#" onclick="openPreviewModal({{ file.id }},'{{ file.name|escapejs }}','{{ file.file_type }}','{{ file.file.url }}');return false"><i class="bi bi-eye"></i>Preview</a></li>
+          <li><a class="dropdown-item" href="{% url 'download_file' file.id %}"><i class="bi bi-download"></i>Download</a></li>
+          <li><a class="dropdown-item" href="#" onclick="openShareModal({{ file.id }},'{{ file.name|escapejs }}');return false"><i class="bi bi-share"></i>Share</a></li>
+          <li><a class="dropdown-item" href="#" onclick="toggleFavorite({{ file.id }}, this);return false"><i class="bi bi-star{% if file.is_favorite %}-fill{% endif %}"></i>{% if file.is_favorite %}Unfavorite{% else %}Favorite{% endif %}</a></li>
+          <li><hr class="dropdown-divider"></li>
+          <li><a class="dropdown-item text-danger" href="#" onclick="deleteFileItem({{ file.id }});return false"><i class="bi bi-trash"></i>Move to Trash</a></li>
+        </ul>
+      </div>
+    </div>
+
+    {% if file.file_type == 'image' and file.thumbnail %}
+      <img src="{{ file.thumbnail.url }}" class="file-thumb" alt="{{ file.name }}"
+           onclick="openPreviewModal({{ file.id }},'{{ file.name|escapejs }}','{{ file.file_type }}','{{ file.file.url }}')">
+    {% else %}
+      <div class="file-icon-display" onclick="openPreviewModal({{ file.id }},'{{ file.name|escapejs }}','{{ file.file_type }}','{{ file.file.url }}')">
+        <i class="{{ file.icon_class }}"></i>
+      </div>
+    {% endif %}
+
+    <div>
+      <div class="file-name" title="{{ file.name }}">{{ file.name }}</div>
+      <div class="d-flex justify-content-between file-meta mt-1">
+        <span>{{ file.formatted_size }}</span>
+        <span>v{{ file.current_version }}</span>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div style="text-align:center;padding:4rem 1rem;border:2px dashed var(--border-color);border-radius:var(--radius-xl)">
+  <i class="bi bi-folder-x" style="font-size:3rem;color:var(--text-muted);display:block;margin-bottom:1rem"></i>
+  <p style="color:var(--text-muted);margin:0">
+    {% if search_query %}No results for "{{ search_query }}"{% else %}This folder is empty{% endif %}
+  </p>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+function deleteFileItem(id) {
+  if (!confirm('Move this file to Trash?')) return;
+  fetch(`/api/files/${id}/`, {
+    method: 'DELETE',
+    headers: { 'X-CSRFToken': getCookie('csrftoken') }
+  }).then(r => r.json()).then(() => {
+    showToast('Moved to Trash', 'File moved to trash.', 'info');
+    document.getElementById(`file-card-${id}`)?.remove();
+  });
+}
+
+function deleteFolderItem(id) {
+  if (!confirm('Move this folder to Trash?')) return;
+  fetch(`/api/files/${id}/?type=folder`, {
+    method: 'DELETE',
+    headers: { 'X-CSRFToken': getCookie('csrftoken') }
+  }).then(() => {
+    showToast('Moved to Trash', 'Folder moved to trash.', 'info');
+    setTimeout(() => location.reload(), 400);
+  });
+}
+
+function toggleFavorite(id, el) {
+  // Determine current favorite state from icon, then send the opposite
+  const icon = el.querySelector('i');
+  const currentlyFavorite = icon && icon.classList.contains('bi-star-fill');
+  const newState = !currentlyFavorite;
+
+  fetch(`/api/files/${id}/`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
+    body: JSON.stringify({ is_favorite: newState })
+  }).then(r => r.json()).then(data => {
+    showToast('Favorite', 'Updated favorites.', 'success');
+    // Update UI: toggle icon and link text
+    if (icon) {
+      if (newState) {
+        icon.classList.remove('bi-star');
+        icon.classList.add('bi-star-fill');
+        el.innerHTML = `<i class="bi bi-star-fill"></i> Unfavorite`;
+      } else {
+        icon.classList.remove('bi-star-fill');
+        icon.classList.add('bi-star');
+        el.innerHTML = `<i class="bi bi-star"></i> Favorite`;
+      }
+    }
+
+    // If we're on the favorites page and the item was unfavorited, remove it from the DOM
+    if (!newState && window.location.pathname.startsWith('/favorites')) {
+      // file cards on favorites page may be inside a column or have id 'file-card-<id>'
+      const card = document.getElementById(`file-card-${id}`) || el.closest('.file-card') || el.closest('.col-12');
+      if (card) card.remove();
+      // If no favorite items left, reload to show empty state
+      setTimeout(() => {
+        if (!document.querySelector('.file-card')) location.reload();
+      }, 200);
+    }
+  }).catch(() => {
+    showToast('Error', 'Could not update favorite state.', 'danger');
+  });
+}
+
+function compressSelectedFiles() {
+  const checked = Array.from(document.querySelectorAll('.file-check:checked')).map(c => c.value);
+  if (!checked.length) { showToast('Select files', 'Check at least one file first.', 'warning'); return; }
+  const name = prompt('Archive name:', 'archive.zip');
+  if (!name) return;
+  fetch('/api/files/compress/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
+    body: JSON.stringify({ file_ids: checked, zip_name: name })
+  }).then(r => r.json()).then(data => {
+    if (data.file) {
+      showToast('ZIP Created', `Archive "${data.file.name}" created!`, 'success');
+      setTimeout(() => location.reload(), 600);
+    } else {
+      showToast('Error', data.error || 'Compression failed', 'danger');
+    }
+  });
+}
+</script>
+{% endblock %}

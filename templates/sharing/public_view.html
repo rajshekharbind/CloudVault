@@ -1,0 +1,42 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shared Item – CloudVault Portal</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
+    <link rel="stylesheet" href="{% static 'css/styles.css' %}">
+</head>
+<body class="d-flex align-items-center justify-content-center min-vh-100 py-5">
+
+    <div class="glass-panel p-4 p-md-5 w-100" style="max-width: 520px;">
+        <div class="text-center mb-4">
+            <div class="brand-icon mx-auto mb-3" style="width: 54px; height: 54px; font-size: 1.75rem;">
+                <i class="bi bi-cloud-check-fill"></i>
+            </div>
+            <h4 class="fw-bold">CloudVault Public Download Portal</h4>
+            <p class="text-muted small">Shared by <strong class="text-main">{{ share_link.created_by.username }}</strong></p>
+        </div>
+
+        {% if share_link.file_item %}
+            <div class="glass-card p-4 text-center mb-4">
+                <i class="{{ share_link.file_item.icon_class }} display-2 mb-3 d-block"></i>
+                <h5 class="fw-bold mb-1">{{ share_link.file_item.name }}</h5>
+                <div class="d-flex justify-content-center gap-3 text-muted small mt-2">
+                    <span><i class="bi bi-hdd me-1"></i> {{ share_link.file_item.formatted_size }}</span>
+                    <span><i class="bi bi-download me-1"></i> {{ share_link.download_count }} downloads</span>
+                </div>
+            </div>
+
+            <a href="{% url 'download_shared' share_link.token %}" class="btn btn-primary btn-lg w-100 rounded-pill fw-semibold shadow">
+                <i class="bi bi-download me-2"></i> Download File Now
+            </a>
+        {% else %}
+            <div class="alert alert-info">Folder sharing preview available.</div>
+        {% endif %}
+    </div>
+
+</body>
+</html>

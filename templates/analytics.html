@@ -1,0 +1,81 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Analytics – CloudVault Enterprise{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h3 class="fw-bold mb-1"><i class="bi bi-bar-chart-line-fill text-primary me-2"></i> File & Storage Analytics</h3>
+        <p class="text-muted small">Insights into file distribution, top heavy files, and access metrics.</p>
+    </div>
+</div>
+
+<div class="row g-4 mb-4">
+    <!-- Top Largest Files -->
+    <div class="col-12 col-lg-6">
+        <div class="glass-card p-4 h-100">
+            <h5 class="fw-bold mb-3"><i class="bi bi-hdd-stack text-warning me-2"></i> Largest Files in Storage</h5>
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0 text-main">
+                    <thead>
+                        <tr class="text-muted small">
+                            <th>File Name</th>
+                            <th>Category</th>
+                            <th>Size</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for file in largest_files %}
+                            <tr>
+                                <td>
+                                    <span class="fw-semibold text-truncate d-block" style="max-width: 180px;">{{ file.name }}</span>
+                                </td>
+                                <td><span class="badge bg-secondary text-uppercase">{{ file.file_type }}</span></td>
+                                <td class="fw-bold text-primary">{{ file.formatted_size }}</td>
+                                <td>
+                                    <a href="{% url 'download_file' file.id %}" class="btn btn-sm btn-icon text-muted"><i class="bi bi-download"></i></a>
+                                </td>
+                            </tr>
+                        {% empty %}
+                            <tr>
+                                <td colspan="4" class="text-center text-muted py-3">No files stored yet.</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Storage Usage Breakdown Table -->
+    <div class="col-12 col-lg-6">
+        <div class="glass-card p-4 h-100">
+            <h5 class="fw-bold mb-3"><i class="bi bi-pie-chart-fill text-info me-2"></i> File Category Distribution</h5>
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0 text-main">
+                    <thead>
+                        <tr class="text-muted small">
+                            <th>Category</th>
+                            <th>Total Files</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in files_by_type %}
+                            <tr>
+                                <td><span class="badge bg-primary bg-opacity-20 text-primary text-uppercase">{{ item.file_type }}</span></td>
+                                <td>{{ item.count }} files</td>
+                            </tr>
+                        {% empty %}
+                            <tr>
+                                <td colspan="2" class="text-center text-muted py-3">No storage data.</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

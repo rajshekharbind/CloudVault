@@ -1,0 +1,67 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Account Profile – CloudVault Enterprise{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h3 class="fw-bold mb-1"><i class="bi bi-person-circle text-primary me-2"></i> Account Settings</h3>
+        <p class="text-muted small">Manage profile details, avatar, and security parameters.</p>
+    </div>
+</div>
+
+<div class="row g-4">
+    <div class="col-12 col-md-4">
+        <div class="glass-card p-4 text-center">
+            {% if request.user.profile_picture %}
+                <img src="{{ request.user.profile_picture.url }}" width="110" height="110" class="rounded-circle mb-3 object-fit-cover shadow">
+            {% else %}
+                <div class="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center mx-auto mb-3 fw-bold display-5" style="width:110px; height:110px;">
+                    {{ request.user.username|first|upper }}
+                </div>
+            {% endif %}
+
+            <h5 class="fw-bold mb-1">{{ request.user.get_full_name|default:request.user.username }}</h5>
+            <p class="text-muted small mb-3">{{ request.user.email }}</p>
+            <span class="badge bg-primary bg-opacity-20 text-primary px-3 py-2 rounded-pill"><i class="bi bi-shield-check me-1"></i> Verified Account</span>
+        </div>
+    </div>
+
+    <div class="col-12 col-md-8">
+        <div class="glass-card p-4">
+            <h5 class="fw-bold mb-4"><i class="bi bi-pencil-square text-primary me-2"></i> Update Profile Information</h5>
+            <form method="POST" enctype="multipart/form-data">
+                {% csrf_token %}
+                <div class="row">
+                    <div class="col-6 mb-3">
+                        <label class="form-label fw-semibold small">First Name</label>
+                        <input type="text" name="first_name" class="form-control" value="{{ request.user.first_name }}">
+                    </div>
+                    <div class="col-6 mb-3">
+                        <label class="form-label fw-semibold small">Last Name</label>
+                        <input type="text" name="last_name" class="form-control" value="{{ request.user.last_name }}">
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label fw-semibold small">Email Address</label>
+                    <input type="email" name="email" class="form-control" value="{{ request.user.email }}">
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label fw-semibold small">Phone Number</label>
+                    <input type="text" name="phone_number" class="form-control" value="{{ request.user.phone_number|default:'' }}">
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label fw-semibold small">Profile Picture</label>
+                    <input type="file" name="profile_picture" class="form-control" accept="image/*">
+                </div>
+
+                <button type="submit" class="btn btn-primary px-4 rounded-pill mt-2">Save Profile Changes</button>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

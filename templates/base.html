@@ -1,0 +1,352 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}CloudVault – Enterprise Cloud Storage{% endblock %}</title>
+  <meta name="description" content="CloudVault – Secure, scalable enterprise cloud file storage and sharing platform.">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{% static 'css/styles.css' %}">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  {% block extra_head %}{% endblock %}
+</head>
+<body>
+
+<div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+<div class="app-layout">
+  <!-- =========  SIDEBAR  ========= -->
+  <aside class="sidebar" id="sidebar">
+
+    <a href="{% url 'dashboard' %}" class="sidebar-brand">
+      <div class="brand-icon-box"><i class="bi bi-cloud-arrow-up-fill"></i></div>
+      <span class="brand-name">CloudVault</span>
+    </a>
+
+    <nav class="sidebar-nav">
+      <span class="nav-section-label">Workspace</span>
+      <a href="{% url 'dashboard' %}" class="nav-item {% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}">
+        <i class="bi bi-grid-1x2-fill"></i> Dashboard
+      </a>
+      <a href="{% url 'files' %}" class="nav-item {% if request.resolver_match.url_name == 'files' %}active{% endif %}">
+        <i class="bi bi-folder2-open"></i> My Files
+      </a>
+      <a href="{% url 'favorites' %}" class="nav-item {% if request.resolver_match.url_name == 'favorites' %}active{% endif %}">
+        <i class="bi bi-star-fill"></i> Favorites
+      </a>
+      <a href="{% url 'shared' %}" class="nav-item {% if request.resolver_match.url_name == 'shared' %}active{% endif %}">
+        <i class="bi bi-share-fill"></i> Shared Links
+      </a>
+      <a href="{% url 'trash' %}" class="nav-item {% if request.resolver_match.url_name == 'trash' %}active{% endif %}">
+        <i class="bi bi-trash3-fill"></i> Trash
+      </a>
+
+      <span class="nav-section-label">Insights</span>
+      <a href="{% url 'analytics' %}" class="nav-item {% if request.resolver_match.url_name == 'analytics' %}active{% endif %}">
+        <i class="bi bi-bar-chart-line-fill"></i> Analytics
+      </a>
+      {% if request.user.is_staff %}
+      <a href="{% url 'admin_panel' %}" class="nav-item {% if request.resolver_match.url_name == 'admin_panel' %}active{% endif %}">
+        <i class="bi bi-shield-lock-fill"></i> Admin Panel
+      </a>
+      {% endif %}
+
+      <span class="nav-section-label">Account</span>
+      <a href="{% url 'profile' %}" class="nav-item {% if request.resolver_match.url_name == 'profile' %}active{% endif %}">
+        <i class="bi bi-person-circle"></i> My Profile
+      </a>
+      <a href="{% url 'logout' %}" class="nav-item">
+        <i class="bi bi-box-arrow-right"></i> Sign Out
+      </a>
+    </nav>
+
+    <!-- Storage Widget -->
+    <div class="storage-widget mb-3">
+      <div class="d-flex justify-content-between align-items-center mb-1">
+        <span style="font-size:.78rem;font-weight:600;color:var(--text-secondary);">
+          <i class="bi bi-hdd-network me-1"></i>Storage
+        </span>
+        <span style="font-size:.75rem;color:var(--text-muted);">{{ user_storage_pct }}%</span>
+      </div>
+      <div class="storage-bar">
+        <div class="storage-bar-fill" style="width:{{ user_storage_pct }}%"></div>
+      </div>
+      <div class="d-flex justify-content-between" style="font-size:.73rem;color:var(--text-muted)">
+        <span>{{ user_storage_used_fmt }}</span>
+        <span>{{ user_storage_quota_fmt }}</span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- =========  MAIN CONTENT  ========= -->
+  <div class="main-content">
+
+    <!-- Topbar -->
+    <header class="topbar">
+      <button class="topbar-hamburger" id="hamburgerBtn" type="button">
+        <i class="bi bi-list"></i>
+      </button>
+
+      <form action="{% url 'files' %}" method="GET" class="search-wrap">
+        <i class="bi bi-search"></i>
+        <input type="text" name="q" class="search-input" placeholder="Search files, folders, tags…"
+               value="{{ search_query|default:'' }}" autocomplete="off">
+      </form>
+
+      <div class="topbar-actions">
+        <button class="btn-brand" data-bs-toggle="modal" data-bs-target="#uploadModal" type="button">
+          <i class="bi bi-cloud-upload-fill"></i>
+          <span class="d-none d-sm-inline">Upload</span>
+        </button>
+
+        <button class="btn-secondary-cv" data-bs-toggle="modal" data-bs-target="#createFolderModal" type="button">
+          <i class="bi bi-folder-plus"></i>
+          <span class="d-none d-sm-inline">New Folder</span>
+        </button>
+
+        <button class="btn-icon" id="themeToggleBtn" type="button" title="Toggle theme">
+          <i class="bi bi-sun-fill" id="themeIcon"></i>
+        </button>
+
+        <!-- User Dropdown -->
+        <div class="dropdown">
+          <div class="avatar-circle" data-bs-toggle="dropdown" style="cursor:pointer">
+            {% if request.user.profile_picture %}
+              <img src="{{ request.user.profile_picture.url }}" alt="Avatar">
+            {% else %}
+              {{ request.user.username|first|upper }}
+            {% endif %}
+          </div>
+          <ul class="dropdown-menu dropdown-menu-end mt-2">
+            <li class="px-3 py-2">
+              <div style="font-weight:600;font-size:.875rem;">{{ request.user.get_full_name|default:request.user.username }}</div>
+              <div style="font-size:.75rem;color:var(--text-muted)">{{ request.user.email }}</div>
+            </li>
+            <li><hr class="dropdown-divider"></li>
+            <li><a class="dropdown-item" href="{% url 'profile' %}"><i class="bi bi-person"></i>Profile</a></li>
+            {% if request.user.is_staff %}
+            <li><a class="dropdown-item" href="{% url 'admin_panel' %}"><i class="bi bi-shield-check"></i>Admin Panel</a></li>
+            <li><a class="dropdown-item" href="/admin/" target="_blank"><i class="bi bi-gear"></i>Django Admin</a></li>
+            {% endif %}
+            <li><hr class="dropdown-divider"></li>
+            <li><a class="dropdown-item text-danger" href="{% url 'logout' %}"><i class="bi bi-box-arrow-right"></i>Sign Out</a></li>
+          </ul>
+        </div>
+      </div>
+    </header>
+
+    <!-- Page Content -->
+    <main class="page-body">
+      {% if messages %}
+        <div class="mb-3">
+          {% for message in messages %}
+            <div class="alert alert-{{ message.tags }} alert-dismissible fade show" role="alert">
+              {{ message }}
+              <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+          {% endfor %}
+        </div>
+      {% endif %}
+
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+</div>
+
+<!-- =========  UPLOAD MODAL  ========= -->
+<div class="modal fade" id="uploadModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title fw-bold"><i class="bi bi-cloud-upload text-brand me-2"></i>Upload Files</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body p-4">
+        <div class="dropzone" id="uploadDropzone">
+          <i class="bi bi-cloud-arrow-up" style="font-size:3rem;color:var(--brand-1);display:block;margin-bottom:.75rem"></i>
+          <div style="font-weight:600;font-size:1rem;margin-bottom:.4rem">Drag & drop files here</div>
+          <div style="font-size:.85rem;color:var(--text-muted);margin-bottom:1.25rem">Supports images, PDF, DOCX, MP4, MP3, ZIP, CSV and more – up to 500 MB</div>
+          <button class="btn-secondary-cv" type="button" onclick="document.getElementById('uploadFileInput').click()">
+            <i class="bi bi-folder2-open"></i> Browse Files
+          </button>
+          <input type="file" id="uploadFileInput" multiple class="d-none" accept="*/*">
+        </div>
+        <div id="uploadProgressContainer" class="mt-3 d-none">
+          <div class="d-flex justify-content-between mb-1" style="font-size:.8rem;color:var(--text-muted)">
+            <span id="uploadStatusText">Uploading…</span>
+          </div>
+          <div class="progress" style="height:8px">
+            <div class="progress-bar progress-bar-striped progress-bar-animated" id="uploadProgressBar" style="width:0%"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- =========  CREATE FOLDER MODAL  ========= -->
+<div class="modal fade" id="createFolderModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <form id="createFolderForm">
+        <div class="modal-header">
+          <h5 class="modal-title fw-bold"><i class="bi bi-folder-plus text-brand me-2"></i>New Folder</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body p-4">
+          <input type="hidden" id="currentFolderId" value="{{ current_folder.id|default:'' }}">
+          <div class="mb-3">
+            <label class="form-label fw-semibold" style="font-size:.85rem">Folder Name</label>
+            <input type="text" id="folderNameInput" class="form-control" placeholder="e.g. Project Files" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold" style="font-size:.85rem">Accent Color</label>
+            <div class="d-flex gap-2 flex-wrap" id="colorPicker">
+              <div onclick="selectColor('#6366F1')" style="width:28px;height:28px;background:#6366F1;border-radius:6px;cursor:pointer;border:2px solid #fff;transition:all .2s" class="color-swatch" data-color="#6366F1"></div>
+              <div onclick="selectColor('#8B5CF6')" style="width:28px;height:28px;background:#8B5CF6;border-radius:6px;cursor:pointer;border:2px solid transparent;transition:all .2s" class="color-swatch" data-color="#8B5CF6"></div>
+              <div onclick="selectColor('#EC4899')" style="width:28px;height:28px;background:#EC4899;border-radius:6px;cursor:pointer;border:2px solid transparent;transition:all .2s" class="color-swatch" data-color="#EC4899"></div>
+              <div onclick="selectColor('#EF4444')" style="width:28px;height:28px;background:#EF4444;border-radius:6px;cursor:pointer;border:2px solid transparent;transition:all .2s" class="color-swatch" data-color="#EF4444"></div>
+              <div onclick="selectColor('#F59E0B')" style="width:28px;height:28px;background:#F59E0B;border-radius:6px;cursor:pointer;border:2px solid transparent;transition:all .2s" class="color-swatch" data-color="#F59E0B"></div>
+              <div onclick="selectColor('#10B981')" style="width:28px;height:28px;background:#10B981;border-radius:6px;cursor:pointer;border:2px solid transparent;transition:all .2s" class="color-swatch" data-color="#10B981"></div>
+              <div onclick="selectColor('#3B82F6')" style="width:28px;height:28px;background:#3B82F6;border-radius:6px;cursor:pointer;border:2px solid transparent;transition:all .2s" class="color-swatch" data-color="#3B82F6"></div>
+              <div onclick="selectColor('#06B6D4')" style="width:28px;height:28px;background:#06B6D4;border-radius:6px;cursor:pointer;border:2px solid transparent;transition:all .2s" class="color-swatch" data-color="#06B6D4"></div>
+            </div>
+            <input type="hidden" id="folderColorInput" value="#6366F1">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn-secondary-cv" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn-brand">Create Folder</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- =========  FILE PREVIEW MODAL  ========= -->
+<div class="modal fade" id="previewModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered modal-xl">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h6 class="modal-title fw-bold text-truncate" id="previewModalTitle" style="max-width:500px">Preview</h6>
+        <div class="d-flex gap-2 ms-auto me-3" id="previewModalActions"></div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body text-center p-3" id="previewContentContainer" style="min-height:300px">
+        <div class="d-flex align-items-center justify-content-center h-100" style="height:300px">
+          <div class="spinner-border text-primary"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- =========  SHARE MODAL  ========= -->
+<div class="modal fade" id="shareModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title fw-bold"><i class="bi bi-share text-brand me-2"></i>Share File</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body p-4">
+        <input type="hidden" id="shareFileId">
+        <p style="font-size:.85rem;color:var(--text-muted)">Sharing: <strong style="color:var(--text-primary)" id="shareTargetName"></strong></p>
+        <div class="row g-3 mb-3">
+          <div class="col-6">
+            <label class="form-label fw-semibold" style="font-size:.82rem">Access Type</label>
+            <select id="shareAccessType" class="form-select form-select-sm">
+              <option value="public">Public – anyone with link</option>
+              <option value="private">Private</option>
+            </select>
+          </div>
+          <div class="col-6">
+            <label class="form-label fw-semibold" style="font-size:.82rem">Permission</label>
+            <select id="sharePermission" class="form-select form-select-sm">
+              <option value="view">View Only</option>
+              <option value="edit">Edit</option>
+            </select>
+          </div>
+          <div class="col-6">
+            <label class="form-label fw-semibold" style="font-size:.82rem">Password (optional)</label>
+            <input type="password" id="sharePassword" class="form-control form-control-sm" placeholder="Leave blank for no password">
+          </div>
+          <div class="col-6">
+            <label class="form-label fw-semibold" style="font-size:.82rem">Expires in (days)</label>
+            <input type="number" id="shareExpiryDays" class="form-control form-control-sm" placeholder="e.g. 7" min="1">
+          </div>
+        </div>
+        <button type="button" id="generateShareBtn" class="btn-brand w-100 mb-3 justify-content-center">
+          <i class="bi bi-link-45deg"></i> Generate Share Link
+        </button>
+        <div id="shareResultArea" class="d-none">
+          <label class="form-label fw-semibold" style="font-size:.82rem">Shareable URL</label>
+          <div class="input-group input-group-sm">
+            <input type="text" id="shareInputUrl" class="form-control" readonly>
+            <button class="btn btn-outline-primary btn-sm" type="button" id="copyShareUrlBtn">
+              <i class="bi bi-clipboard"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Toast Container -->
+<div class="toast-container position-fixed bottom-0 end-0 p-3" id="toastContainer" style="z-index:1200"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script src="{% static 'js/app.js' %}"></script>
+<script>
+  // Color picker for folder creation
+  function selectColor(color) {
+    document.getElementById('folderColorInput').value = color;
+    document.querySelectorAll('.color-swatch').forEach(el => {
+      el.style.border = el.dataset.color === color ? '2px solid #fff' : '2px solid transparent';
+      el.style.transform = el.dataset.color === color ? 'scale(1.25)' : 'scale(1)';
+    });
+  }
+
+  // Create folder form submit
+  document.getElementById('createFolderForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    const name = document.getElementById('folderNameInput').value.trim();
+    const color = document.getElementById('folderColorInput').value;
+    const parentId = document.getElementById('currentFolderId').value;
+    if (!name) return;
+
+    fetch('/api/folders/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
+      body: JSON.stringify({ name, color, parent_id: parentId || null })
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data.id) {
+        showToast('Folder Created', 'Folder created successfully!', 'success');
+        bootstrap.Modal.getInstance(document.getElementById('createFolderModal')).hide();
+        setTimeout(() => location.reload(), 500);
+      } else {
+        showToast('Error', data.error || 'Could not create folder', 'danger');
+      }
+    });
+  });
+
+  // Mobile sidebar toggle
+  document.getElementById('hamburgerBtn').addEventListener('click', () => {
+    document.getElementById('sidebar').classList.toggle('open');
+    document.getElementById('sidebarOverlay').classList.toggle('show');
+  });
+  document.getElementById('sidebarOverlay').addEventListener('click', () => {
+    document.getElementById('sidebar').classList.remove('open');
+    document.getElementById('sidebarOverlay').classList.remove('show');
+  });
+</script>
+{% block extra_scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,78 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Favorites – CloudVault Enterprise{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h3 class="fw-bold mb-1"><i class="bi bi-star-fill text-warning me-2"></i> Favorite Items</h3>
+        <p class="text-muted small">Quick access to your starred folders and files.</p>
+    </div>
+</div>
+
+{% if files %}
+    <div class="row g-3">
+        {% for file in files %}
+            <div class="col-12 col-sm-6 col-md-4 col-xl-3">
+                <div class="glass-card file-card">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <span class="file-badge text-uppercase">{{ file.file_type }}</span>
+                        <span class="text-warning"><i class="bi bi-star-fill"></i></span>
+                    </div>
+
+                    {% if file.file_type == 'image' and file.thumbnail %}
+                        <img src="{{ file.thumbnail.url }}" class="file-preview-thumb my-2" alt="{{ file.name }}">
+                    {% else %}
+                        <div class="file-icon-large">
+                            <i class="{{ file.icon_class }}"></i>
+                        </div>
+                    {% endif %}
+
+                    <div>
+                        <h6 class="fw-semibold text-truncate mb-1">{{ file.name }}</h6>
+                        <div class="d-flex justify-content-between small text-muted">
+                            <span>{{ file.formatted_size }}</span>
+                            <a href="{% url 'download_file' file.id %}" class="text-primary text-decoration-none"><i class="bi bi-download"></i></a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        {% endfor %}
+    </div>
+{% else %}
+    <div class="text-center py-5 glass-card">
+        <i class="bi bi-star text-muted display-4 mb-3 d-block"></i>
+        <p class="text-muted">No favorite items marked yet.</p>
+    </div>
+{% endif %}
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+// Listen for favorite updates and remove unfavorited items in real-time
+(() => {
+    try {
+        const protocol = (location.protocol === 'https:') ? 'wss' : 'ws';
+        const ws = new WebSocket(`${protocol}://${location.host}/ws/activities/`);
+        ws.addEventListener('message', (ev) => {
+            try {
+                const msg = JSON.parse(ev.data);
+                if (msg && msg.event === 'favorite_update') {
+                    const fid = msg.file_id;
+                    const isFav = !!msg.is_favorite;
+                    if (!isFav) {
+                        const card = document.getElementById(`file-card-${fid}`) || document.querySelector(`[data-file-id='${fid}']`);
+                        if (card) card.remove();
+                        setTimeout(() => { if (!document.querySelector('.file-card')) location.reload(); }, 200);
+                    } else {
+                        // New favorite added elsewhere; reload to include it.
+                        location.reload();
+                    }
+                }
+            } catch (e) { /* ignore malformed messages */ }
+        });
+    } catch (e) { /* ignore websocket failures */ }
+})();
+</script>
+{% endblock %}
