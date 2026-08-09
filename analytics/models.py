@@ -1,6 +1,7 @@
 import json
 from django.db import models
 from django.conf import settings
+from django.utils import timezone
 
 class ActivityLog(models.Model):
     ACTION_CHOICES = (
@@ -62,7 +63,7 @@ class ActivityLog(models.Model):
                     'action': obj.get_action_display(),
                     'details': obj.get_details_dict(),
                     'ip_address': obj.ip_address,
-                    'timestamp': obj.timestamp.strftime('%b %d, %Y %H:%M')
+                    'timestamp': timezone.localtime(obj.timestamp).strftime('%b %d, %Y %H:%M')
                 }
                 async_to_sync(channel_layer.group_send)(f'user_{user.id}', {
                     'type': 'activity',
@@ -81,7 +82,7 @@ class ActivityLog(models.Model):
 
     def __str__(self):
         username = self.user.username if self.user else 'Anonymous'
-        return f"{username} - {self.get_action_display()} at {self.timestamp.strftime('%Y-%m-%d %H:%M')}"
+        return f"{username} - {self.get_action_display()} at {timezone.localtime(self.timestamp).strftime('%Y-%m-%d %H:%M')}"
 
 
 class Notification(models.Model):

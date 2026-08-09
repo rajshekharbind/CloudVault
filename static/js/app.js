@@ -2,8 +2,10 @@
 
 // ---- Theme Init ----
 (function() {
-  const saved = localStorage.getItem('cv_theme') || 'dark';
-  document.documentElement.setAttribute('data-theme', saved);
+  const saved = localStorage.getItem('cv_theme');
+  const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const theme = saved || (prefersDark ? 'dark' : 'light');
+  document.documentElement.setAttribute('data-theme', theme);
 })();
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -11,6 +13,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const themeBtn = document.getElementById('themeToggleBtn');
   const themeIcon = document.getElementById('themeIcon');
   if (themeBtn) {
+    const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const getTheme = () => document.documentElement.getAttribute('data-theme') || (prefersDark ? 'dark' : 'light');
     const applyTheme = (t) => {
       document.documentElement.setAttribute('data-theme', t);
       localStorage.setItem('cv_theme', t);
@@ -18,9 +22,8 @@ document.addEventListener('DOMContentLoaded', () => {
         themeIcon.className = t === 'dark' ? 'bi bi-sun-fill' : 'bi bi-moon-fill';
       }
     };
-    const cur = () => document.documentElement.getAttribute('data-theme') || 'dark';
-    applyTheme(cur());
-    themeBtn.addEventListener('click', () => applyTheme(cur() === 'dark' ? 'light' : 'dark'));
+    applyTheme(getTheme());
+    themeBtn.addEventListener('click', () => applyTheme(getTheme() === 'dark' ? 'light' : 'dark'));
   }
 
   initDropzone();

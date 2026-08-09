@@ -3,6 +3,9 @@ from rest_framework.response import Response
 from rest_framework import permissions, status
 from django.utils import timezone
 from django.db.models import Count, Sum
+from django.contrib.auth.decorators import login_required
+from django.shortcuts import redirect
+from django.contrib import messages
 from .models import ActivityLog, Notification
 
 class ActivityLogAPIView(APIView):
@@ -15,7 +18,7 @@ class ActivityLogAPIView(APIView):
             'action': log.get_action_display(),
             'details': log.get_details_dict(),
             'ip_address': log.ip_address,
-            'timestamp': log.timestamp.strftime('%b %d, %Y %H:%M')
+            'timestamp': timezone.localtime(log.timestamp).strftime('%b %d, %Y %H:%M')
         } for log in logs]
         return Response(data)
 
@@ -30,7 +33,7 @@ class NotificationAPIView(APIView):
             'message': n.message,
             'type': n.notification_type,
             'is_read': n.is_read,
-            'created_at': n.created_at.strftime('%b %d, %H:%M')
+            'created_at': timezone.localtime(n.created_at).strftime('%b %d, %Y %H:%M')
         } for n in notifications]
         return Response(data)
 
@@ -38,3 +41,13 @@ class NotificationAPIView(APIView):
         # Mark all as read
         Notification.objects.filter(user=request.user, is_read=False).update(is_read=True)
         return Response({'message': 'All notifications marked as read.'})
+
+
+@login_required
+def clear_recent_activity_view(request):
+    if request.method != 'POST':
+        return redirect('dashboard')
+
+    ActivityLog.objects.filter(user=request.user).delete()
+    messages.success(request, 'Recent activity cleared.')
+    return redirect('dashboard')
