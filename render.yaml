@@ -1,0 +1,21 @@
+# Example Render manifest
+# Create a Web Service on Render pointing to this repository and use this manifest
+
+services:
+  - type: web
+    name: cloudvault-web
+    env: docker
+    plan: starter
+    dockerfilePath: Dockerfile
+    dockerContext: .
+    buildCommand: ''
+    startCommand: bash ./start.sh
+    envVars:
+      - key: SECRET_KEY
+        sync: true
+      - key: DATABASE_URL
+        sync: true
+      - key: REDIS_URL
+        sync: true
+      - key: DEBUG
+        value: 'False'
