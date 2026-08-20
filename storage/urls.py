@@ -24,4 +24,5 @@ urlpatterns = [
     path('api/items/<int:pk>/restore/', views.RestoreItemAPIView.as_view(), name='api_restore_item'),
     path('api/files/compress/', views.CompressZipAPIView.as_view(), name='api_compress_zip'),
     path('api/scan-url/', views.scan_url_api, name='api_scan_url'),
+    path('api/security/agent-analysis/', views.security_agent_analysis_api, name='api_security_agent_analysis'),
 ]
