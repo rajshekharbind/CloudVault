@@ -52,6 +52,46 @@
   </div>
 </div>
 
+<div class="card-cv p-4 mb-4">
+  <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
+    <h6 style="font-weight:700;margin:0">
+      <i class="bi bi-shield-fill-check me-2" style="color:var(--brand-1)"></i>CloudVault Sentinel
+    </h6>
+    <a href="{% url 'sentinel' %}" style="font-size:.82rem;color:var(--brand-1);text-decoration:none;font-weight:600">
+      View security dashboard <i class="bi bi-arrow-right ms-1"></i>
+    </a>
+  </div>
+  <div class="row g-3">
+    <div class="col-12 col-md-4">
+      <div class="stat-card compact-card">
+        <div class="stat-icon red"><i class="bi bi-exclamation-octagon-fill"></i></div>
+        <div>
+          <div class="stat-value">{{ blocked_files|default:0 }}</div>
+          <div class="stat-label">Blocked</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-12 col-md-4">
+      <div class="stat-card compact-card">
+        <div class="stat-icon yellow"><i class="bi bi-hourglass-split"></i></div>
+        <div>
+          <div class="stat-value">{{ review_files|default:0 }}</div>
+          <div class="stat-label">Manual Review</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-12 col-md-4">
+      <div class="stat-card compact-card">
+        <div class="stat-icon green"><i class="bi bi-check-circle-fill"></i></div>
+        <div>
+          <div class="stat-value">{{ approved_files|default:0 }}</div>
+          <div class="stat-label">Approved</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Chart + Activity -->
 <div class="row g-3 mb-4">
   <div class="col-12 col-lg-5">

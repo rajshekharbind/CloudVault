@@ -110,6 +110,20 @@ class FileItem(models.Model):
     trashed_at = models.DateTimeField(null=True, blank=True)
     tags = models.CharField(max_length=255, blank=True, help_text="Comma separated tags")
     current_version = models.IntegerField(default=1)
+    security_status = models.CharField(
+        max_length=20,
+        choices=[
+            ('pending', 'Pending'),
+            ('approved', 'Approved'),
+            ('manual_review', 'Manual Review'),
+            ('blocked', 'Blocked'),
+        ],
+        default='pending',
+    )
+    risk_score = models.PositiveSmallIntegerField(default=0)
+    is_quarantined = models.BooleanField(default=False)
+    quarantine_reason = models.TextField(blank=True)
+    security_summary = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -193,3 +207,68 @@ class FileVersion(models.Model):
 
     def __str__(self):
         return f"{self.file_item.name} (v{self.version_number})"
+
+
+class SentinelScan(models.Model):
+    file_item = models.ForeignKey(
+        FileItem,
+        on_delete=models.CASCADE,
+        related_name='sentinel_scans'
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=[
+            ('pending', 'Pending'),
+            ('approved', 'Approved'),
+            ('manual_review', 'Manual Review'),
+            ('blocked', 'Blocked'),
+        ],
+        default='pending'
+    )
+    risk_score = models.PositiveSmallIntegerField(default=0)
+    risk_level = models.CharField(max_length=20, default='low')
+    summary = models.TextField(blank=True)
+    findings = models.JSONField(default=dict, blank=True)
+    recommendations = models.TextField(blank=True)
+    quarantine_required = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.file_item.name} ({self.status})"
+
+
+class ExternalUrlScan(models.Model):
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='url_scans'
+    )
+    url = models.URLField(max_length=2000)
+    final_url = models.URLField(max_length=2000, blank=True)
+    http_status = models.PositiveIntegerField(default=0)
+    redirect_chain = models.JSONField(default=list, blank=True)
+    status = models.CharField(
+        max_length=20,
+        choices=[
+            ('approved', 'Approved'),
+            ('manual_review', 'Manual Review'),
+            ('blocked', 'Blocked'),
+        ],
+        default='manual_review'
+    )
+    risk_score = models.PositiveSmallIntegerField(default=0)
+    risk_level = models.CharField(max_length=20, default='low')
+    summary = models.TextField(blank=True)
+    findings = models.JSONField(default=dict, blank=True)
+    quarantined_file = models.FileField(upload_to='quarantine/%Y/%m/%d/', null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.url} ({self.status})"
