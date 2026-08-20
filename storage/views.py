@@ -1,19 +1,26 @@
-import os
 import io
+import json
+import os
+import re
+import urllib.parse
+import urllib.request
 import zipfile
+
 from PIL import Image
 from django.shortcuts import render, get_object_or_404, redirect
 from django.http import FileResponse, JsonResponse, HttpResponse, Http404
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.conf import settings
 from django.utils import timezone
 from django.db.models import Q, Sum, Count
 from django.core.files.base import ContentFile
+from django.utils.text import slugify
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status, permissions
 
-from .models import Folder, FileItem, FileVersion
+from .models import Folder, FileItem, FileVersion, SentinelScan, ExternalUrlScan
 from sharing.models import Collaborator
 from .serializers import FolderSerializer, FileItemSerializer, FileVersionSerializer
 from .utils import (
@@ -33,6 +40,300 @@ def helper_get_client_ip(request):
     if x_forwarded_for:
         return x_forwarded_for.split(',')[0]
     return request.META.get('REMOTE_ADDR', '127.0.0.1')
+
+
+def _scan_for_sensitive_content(file_name, uploaded_file):
+    factors = []
+    risk_score = 0
+    lowered_name = (file_name or '').lower()
+
+    suspicious_tokens = [
+        'password', 'secret', 'token', 'credential', 'accesskey', 'private',
+        'aws', 'dbpass', 'apikey', 'authkey', 'oauth', 'api_key', 'prod', 'confidential'
+    ]
+    for token in suspicious_tokens:
+        if token in lowered_name:
+            risk_score += 15
+            factors.append(f"filename_contains:{token}")
+
+    suspicious_extensions = {'exe', 'dll', 'bat', 'cmd', 'com', 'scr', 'ps1', 'js', 'vbs', 'jar'}
+    ext = os.path.splitext(file_name or '')[1].lower().lstrip('.')
+    if ext in suspicious_extensions:
+        risk_score += 30
+        factors.append(f"suspicious_extension:{ext}")
+
+    if uploaded_file is not None:
+        try:
+            file_obj = uploaded_file.file if hasattr(uploaded_file, 'file') else uploaded_file
+            if hasattr(file_obj, 'seek'):
+                file_obj.seek(0)
+                sample = file_obj.read(20000)
+                if hasattr(file_obj, 'seek'):
+                    file_obj.seek(0)
+                if isinstance(sample, (bytes, bytearray)):
+                    sample_text = sample.decode('utf-8', errors='ignore')
+                else:
+                    sample_text = str(sample)
+                patterns = [
+                    r'AKIA[0-9A-Z]{16}', r'aws[_-]?secret[_-]?access[_-]?key',
+                    r'-----BEGIN [A-Z ]*PRIVATE KEY-----', r'(?i)(password|passwd|secret|token)\s*[:=]\s*[A-Za-z0-9!@#$%^&*()_+\-={}\[\]:;"\'\\|,.<>/?~`]{4,}',
+                    r'(?i)api[_-]?key\s*[:=]\s*[A-Za-z0-9._\-]{8,}'
+                ]
+                import re
+                for pattern in patterns:
+                    if re.search(pattern, sample_text):
+                        risk_score += 30
+                        factors.append(f"content_pattern:{pattern}")
+        except Exception:
+            pass
+
+    if risk_score >= 70:
+        status = 'blocked'
+        level = 'critical'
+        summary = 'CloudVault Sentinel flagged the object as high-risk due to suspicious naming, risky file type, or sensitive material detection.'
+        recommendation = 'The object has been blocked from trusted storage to prevent malware or credential leakage.'
+    elif risk_score >= 45:
+        status = 'manual_review'
+        level = 'high'
+        summary = 'CloudVault Sentinel detected suspicious indicators and routed the object for a human security review.'
+        recommendation = 'A security analyst should verify the content, ownership, and policy risk before approving access.'
+    else:
+        status = 'approved'
+        level = 'low'
+        summary = 'CloudVault Sentinel completed a safe-content review and approved the object for trusted storage.'
+        recommendation = 'Continue standard monitoring and keep the object within the approved policy baseline.'
+
+    return {
+        'status': status,
+        'risk_score': min(risk_score, 100),
+        'risk_level': level,
+        'summary': summary,
+        'recommendations': recommendation,
+        'findings': {'factors': factors},
+        'quarantine_required': status in ['manual_review', 'blocked'],
+    }
+
+
+def run_sentinel_scan(file_item):
+    scan_result = _scan_for_sensitive_content(file_item.name, file_item.file)
+    file_item.security_status = scan_result['status']
+    file_item.risk_score = scan_result['risk_score']
+    file_item.is_quarantined = scan_result['quarantine_required']
+    file_item.quarantine_reason = scan_result['summary']
+    file_item.security_summary = scan_result['summary']
+    file_item.save(update_fields=['security_status', 'risk_score', 'is_quarantined', 'quarantine_reason', 'security_summary', 'updated_at'])
+
+    SentinelScan.objects.create(
+        file_item=file_item,
+        status=scan_result['status'],
+        risk_score=scan_result['risk_score'],
+        risk_level=scan_result['risk_level'],
+        summary=scan_result['summary'],
+        findings=scan_result['findings'],
+        recommendations=scan_result['recommendations'],
+        quarantine_required=scan_result['quarantine_required'],
+    )
+    return scan_result
+
+
+def scan_url_for_safety(raw_url, user):
+    if not raw_url or not str(raw_url).strip():
+        raise ValueError('A URL is required to run a security scan.')
+
+    candidate = str(raw_url).strip()
+    if '://' not in candidate:
+        candidate = 'https://' + candidate
+
+    parsed = urllib.parse.urlparse(candidate)
+    if parsed.scheme not in ('http', 'https') or not parsed.netloc:
+        raise ValueError('Only http/https URLs are supported for security scanning.')
+
+    blocked_domains = ['tinyurl.com', 'bit.ly', 'goo.gl', 'ow.ly', 'is.gd', 't.co']
+    lowered = candidate.lower()
+    findings = []
+    risk_score = 0
+    redirect_chain = []
+    final_url = candidate
+    response_status = 0
+    body = b''
+    quarantine_filename = ''
+
+    if any(domain in lowered for domain in blocked_domains):
+        risk_score += 25
+        findings.append('url_shortener_domain')
+
+    suspicious_tokens = ['download', 'confirm', 'verify', 'secure', 'free', 'claim', 'login', 'account', 'password', 'invoice', 'urgent', 'click-here']
+    for token in suspicious_tokens:
+        if token in lowered:
+            risk_score += 8
+            findings.append(f'url_keyword:{token}')
+
+    suspicious_exts = ['.exe', '.dll', '.bat', '.cmd', '.scr', '.msi', '.apk', '.jar', '.ps1', '.vbs']
+    if any(candidate.lower().endswith(ext) for ext in suspicious_exts):
+        risk_score += 35
+        findings.append('suspicious_file_extension')
+
+    browser_html = ''
+    try:
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.goto(candidate, wait_until='domcontentloaded', timeout=15000)
+            browser_html = page.content()
+            final_url = page.url or final_url
+            browser.close()
+    except Exception:
+        browser_html = ''
+
+    request = urllib.request.Request(candidate, headers={
+        'User-Agent': 'CloudVault-Sentinel/1.0',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    })
+
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            final_url = response.geturl() or candidate
+            response_status = getattr(response, 'status', 0)
+            body = response.read(2 * 1024 * 1024)
+            redirect_chain = [candidate]
+            if final_url and final_url != candidate:
+                redirect_chain.append(final_url)
+
+        if response_status >= 400:
+            risk_score += 25
+            findings.append('http_error_response')
+
+        if len(redirect_chain) > 3:
+            risk_score += 20
+            findings.append('many_redirects')
+
+        browser_text = browser_html.lower()
+        if 'javascript:' in lowered or 'onclick' in (body.decode('utf-8', 'ignore').lower() + ' ' + browser_text):
+            risk_score += 20
+            findings.append('script_based_redirect')
+
+        if body or browser_html:
+            html_snippet = (body.decode('utf-8', 'ignore') + ' ' + browser_html).lower()
+            for pattern in ['login', 'verify', 'urgent', 'download', 'suspicious', 'free']:
+                if pattern in html_snippet:
+                    risk_score += 10
+                    findings.append(f'page_content_hint:{pattern}')
+
+            suspicious_content = _scan_for_sensitive_content(os.path.basename(urllib.parse.urlparse(final_url).path) or 'remote-download', ContentFile(body, name='remote-download'))
+            if suspicious_content['risk_score'] > 0:
+                risk_score += min(suspicious_content['risk_score'] // 2, 30)
+                findings.append('downloaded_content_suspicious')
+
+        if final_url.lower().endswith(('.exe', '.dll', '.bat', '.cmd', '.scr', '.msi', '.apk', '.jar', '.ps1', '.vbs')):
+            risk_score += 40
+            findings.append('final_url_is_binary')
+
+    except Exception as exc:
+        risk_score += 20
+        findings.append(f'network_error:{type(exc).__name__}')
+        summary = 'CloudVault Sentinel could not validate the URL safely and flagged it for manual review because the remote endpoint did not respond cleanly.'
+        decision = 'manual_review'
+        result = {
+            'status': decision,
+            'risk_score': min(risk_score, 100),
+            'risk_level': 'high',
+            'summary': summary,
+            'final_url': final_url,
+            'redirect_chain': redirect_chain,
+            'findings': {'factors': findings},
+            'quarantine_required': True,
+        }
+        ExternalUrlScan.objects.create(
+            owner=user,
+            url=candidate,
+            final_url=final_url,
+            http_status=response_status,
+            redirect_chain=redirect_chain,
+            status=decision,
+            risk_score=result['risk_score'],
+            risk_level=result['risk_level'],
+            summary=summary,
+            findings=result['findings'],
+            quarantined_file=None,
+        )
+        return result
+
+    if risk_score >= 80:
+        decision = 'blocked'
+        risk_level = 'critical'
+        summary = 'CloudVault Sentinel blocked the URL because it matched known malicious indicators, suspicious redirects, or executable download patterns.'
+    elif risk_score >= 45:
+        decision = 'manual_review'
+        risk_level = 'high'
+        summary = 'CloudVault Sentinel flagged the URL for human review because the destination was overly risky or redirect-heavy.'
+    else:
+        decision = 'approved'
+        risk_level = 'low'
+        summary = 'CloudVault Sentinel validated the URL and approved it for standard access.'
+
+    if body:
+        quarantine_dir = os.path.join(settings.MEDIA_ROOT, 'quarantine')
+        os.makedirs(quarantine_dir, exist_ok=True)
+        quarantine_filename = slugify(urllib.parse.urlparse(final_url).netloc or 'remote-download') + '-sentinel.bin'
+        preserved_path = os.path.join(quarantine_dir, quarantine_filename)
+        with open(preserved_path, 'wb') as quarantine_file:
+            quarantine_file.write(body[:5 * 1024 * 1024])
+
+    url_scan = ExternalUrlScan.objects.create(
+        owner=user,
+        url=candidate,
+        final_url=final_url,
+        http_status=response_status,
+        redirect_chain=redirect_chain,
+        status=decision,
+        risk_score=min(risk_score, 100),
+        risk_level=risk_level,
+        summary=summary,
+        findings={'factors': findings},
+        quarantined_file=None,
+    )
+
+    if body and quarantine_filename:
+        preserved_path = os.path.join(settings.MEDIA_ROOT, 'quarantine', quarantine_filename)
+        if os.path.exists(preserved_path):
+            with open(preserved_path, 'rb') as quarantine_file:
+                url_scan.quarantined_file.save(
+                    quarantine_filename,
+                    ContentFile(quarantine_file.read()),
+                    save=True,
+                )
+
+    return {
+        'status': decision,
+        'risk_score': min(risk_score, 100),
+        'risk_level': risk_level,
+        'summary': summary,
+        'final_url': final_url,
+        'redirect_chain': redirect_chain,
+        'findings': {'factors': findings},
+        'quarantine_required': decision in ['manual_review', 'blocked'],
+        'scan_id': url_scan.id,
+    }
+
+
+@login_required
+def scan_url_api(request):
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Only POST requests are allowed.'}, status=405)
+
+    payload = request.POST.get('url')
+    if not payload and hasattr(request, 'data'):
+        payload = request.data.get('url')
+    if not payload:
+        return JsonResponse({'error': 'A URL is required.'}, status=400)
+
+    try:
+        result = scan_url_for_safety(payload, request.user)
+    except ValueError as exc:
+        return JsonResponse({'error': str(exc)}, status=400)
+
+    return JsonResponse(result)
 
 
 # Page Template Views
@@ -63,6 +364,11 @@ def dashboard_view(request):
     total_folders_count = Folder.objects.filter(owner=user, is_trashed=False).count()
     notifications = Notification.objects.filter(user=user, is_read=False)[:5]
 
+    sentinel_scans = SentinelScan.objects.filter(file_item__owner=user).order_by('-created_at')[:5]
+    blocked_files = FileItem.objects.filter(owner=user, is_trashed=False, security_status='blocked').count()
+    review_files = FileItem.objects.filter(owner=user, is_trashed=False, security_status='manual_review').count()
+    approved_files = FileItem.objects.filter(owner=user, is_trashed=False, security_status='approved').count()
+
     context = {
         'recent_files': recent_files,
         'recent_activities': recent_activities,
@@ -70,6 +376,10 @@ def dashboard_view(request):
         'total_files_count': total_files_count,
         'total_folders_count': total_folders_count,
         'notifications': notifications,
+        'sentinel_scans': sentinel_scans,
+        'blocked_files': blocked_files,
+        'review_files': review_files,
+        'approved_files': approved_files,
     }
     return render(request, 'dashboard.html', context)
 
@@ -207,6 +517,29 @@ def analytics_view(request):
 
 
 @login_required
+def sentinel_dashboard_view(request):
+    user = request.user
+    scans = SentinelScan.objects.filter(file_item__owner=user).order_by('-created_at')[:20]
+    url_scans = ExternalUrlScan.objects.filter(owner=user).order_by('-created_at')[:10]
+
+    latest_files = FileItem.objects.filter(owner=user, is_trashed=False).order_by('-updated_at')[:10]
+    low_risk = FileItem.objects.filter(owner=user, is_trashed=False, risk_score__lt=50).count()
+    medium_risk = FileItem.objects.filter(owner=user, is_trashed=False, risk_score__gte=50, risk_score__lt=80).count()
+    high_risk = FileItem.objects.filter(owner=user, is_trashed=False, risk_score__gte=80).count()
+
+    context = {
+        'scans': scans,
+        'url_scans': url_scans,
+        'latest_files': latest_files,
+        'low_risk': low_risk,
+        'medium_risk': medium_risk,
+        'high_risk': high_risk,
+        'total_scans': scans.count() + url_scans.count(),
+    }
+    return render(request, 'sentinel.html', context)
+
+
+@login_required
 def admin_panel_view(request):
     if not request.user.is_staff and not request.user.is_superuser:
         messages.error(request, 'Access restricted to administrators.')
@@ -301,6 +634,14 @@ class UploadFileAPIView(APIView):
             ext = os.path.splitext(uploaded_file.name)[1].lower()
             category = detect_file_category(ext, uploaded_file.content_type)
             checksum = calculate_checksum(uploaded_file)
+            scan_result = _scan_for_sensitive_content(uploaded_file.name, uploaded_file)
+
+            if scan_result['status'] == 'blocked':
+                return Response({
+                    'error': f'CloudVault Sentinel blocked {uploaded_file.name}. {scan_result["summary"]}',
+                    'risk_score': scan_result['risk_score'],
+                    'status': 'blocked',
+                }, status=status.HTTP_400_BAD_REQUEST)
 
             # Check if version update requested or identical file upload
             existing_file = FileItem.objects.filter(
@@ -309,11 +650,27 @@ class UploadFileAPIView(APIView):
 
             if existing_file:
                 existing_file.create_version(uploaded_file, user, changelog="Uploaded duplicate name file version")
+                existing_file.security_status = scan_result['status']
+                existing_file.risk_score = scan_result['risk_score']
+                existing_file.is_quarantined = scan_result['quarantine_required']
+                existing_file.quarantine_reason = scan_result['summary']
+                existing_file.security_summary = scan_result['summary']
+                existing_file.save(update_fields=['security_status', 'risk_score', 'is_quarantined', 'quarantine_reason', 'security_summary', 'updated_at'])
+                SentinelScan.objects.create(
+                    file_item=existing_file,
+                    status=scan_result['status'],
+                    risk_score=scan_result['risk_score'],
+                    risk_level=scan_result['risk_level'],
+                    summary=scan_result['summary'],
+                    findings=scan_result['findings'],
+                    recommendations=scan_result['recommendations'],
+                    quarantine_required=scan_result['quarantine_required'],
+                )
                 created_file_items.append(existing_file)
                 ActivityLog.log_activity(
                     user=user,
                     action='UPLOAD',
-                    details={'file_name': existing_file.name, 'version': existing_file.current_version},
+                    details={'file_name': existing_file.name, 'version': existing_file.current_version, 'security_status': scan_result['status']},
                     ip_address=helper_get_client_ip(request),
                     user_agent=request.META.get('HTTP_USER_AGENT', '')
                 )
@@ -328,9 +685,24 @@ class UploadFileAPIView(APIView):
                     extension=ext.strip('.'),
                     file_size=uploaded_file.size,
                     mime_type=uploaded_file.content_type or '',
-                    checksum=checksum
+                    checksum=checksum,
+                    security_status=scan_result['status'],
+                    risk_score=scan_result['risk_score'],
+                    is_quarantined=scan_result['quarantine_required'],
+                    quarantine_reason=scan_result['summary'],
+                    security_summary=scan_result['summary'],
                 )
                 file_item.save()
+                SentinelScan.objects.create(
+                    file_item=file_item,
+                    status=scan_result['status'],
+                    risk_score=scan_result['risk_score'],
+                    risk_level=scan_result['risk_level'],
+                    summary=scan_result['summary'],
+                    findings=scan_result['findings'],
+                    recommendations=scan_result['recommendations'],
+                    quarantine_required=scan_result['quarantine_required'],
+                )
 
                 # Generate thumbnail if image
                 if category == 'image':
@@ -347,7 +719,7 @@ class UploadFileAPIView(APIView):
                 ActivityLog.log_activity(
                     user=user,
                     action='UPLOAD',
-                    details={'file_name': file_item.name, 'file_size': file_item.file_size},
+                    details={'file_name': file_item.name, 'file_size': file_item.file_size, 'security_status': scan_result['status']},
                     ip_address=helper_get_client_ip(request),
                     user_agent=request.META.get('HTTP_USER_AGENT', '')
                 )

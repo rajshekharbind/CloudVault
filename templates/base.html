@@ -60,6 +60,9 @@
       <a href="{% url 'analytics' %}" class="nav-item {% if request.resolver_match.url_name == 'analytics' %}active{% endif %}">
         <i class="bi bi-bar-chart-line-fill"></i> Analytics
       </a>
+      <a href="{% url 'sentinel' %}" class="nav-item {% if request.resolver_match.url_name == 'sentinel' or request.resolver_match.url_name == 'security_dashboard' %}active{% endif %}">
+        <i class="bi bi-shield-check"></i> Sentinel
+      </a>
       {% if request.user.is_staff %}
       <a href="{% url 'admin_panel' %}" class="nav-item {% if request.resolver_match.url_name == 'admin_panel' %}active{% endif %}">
         <i class="bi bi-shield-lock-fill"></i> Admin Panel

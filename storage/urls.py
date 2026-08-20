@@ -9,6 +9,8 @@ urlpatterns = [
     path('shared/', views.shared_view, name='shared'),
     path('trash/', views.trash_view, name='trash'),
     path('analytics/', views.analytics_view, name='analytics'),
+    path('sentinel/', views.sentinel_dashboard_view, name='sentinel'),
+    path('security/', views.sentinel_dashboard_view, name='security_dashboard'),
     path('admin-panel/', views.admin_panel_view, name='admin_panel'),
 
     # File Download & Preview URLs
@@ -21,4 +23,5 @@ urlpatterns = [
     path('api/files/<int:pk>/', views.FileItemDetailAPIView.as_view(), name='api_file_detail'),
     path('api/items/<int:pk>/restore/', views.RestoreItemAPIView.as_view(), name='api_restore_item'),
     path('api/files/compress/', views.CompressZipAPIView.as_view(), name='api_compress_zip'),
+    path('api/scan-url/', views.scan_url_api, name='api_scan_url'),
 ]
