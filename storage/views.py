@@ -21,6 +21,7 @@ from rest_framework.response import Response
 from rest_framework import status, permissions
 
 from .models import Folder, FileItem, FileVersion, SentinelScan, ExternalUrlScan
+from .security_rag import generate_rag_security_report
 from sharing.models import Collaborator
 from .serializers import FolderSerializer, FileItemSerializer, FileVersionSerializer
 from .utils import (
@@ -87,21 +88,28 @@ def _scan_for_sensitive_content(file_name, uploaded_file):
         except Exception:
             pass
 
-    if risk_score >= 70:
+    rag_report = generate_rag_security_report(file_name, os.path.splitext(file_name or '')[1].lower(), factors)
+    risk_score = min(max(risk_score + rag_report['risk_adjustment'], 0), 100)
+
+    if risk_score >= 80:
         status = 'blocked'
         level = 'critical'
-        summary = 'CloudVault Sentinel flagged the object as high-risk due to suspicious naming, risky file type, or sensitive material detection.'
+        summary = 'CloudVault Sentinel flagged the object as high-risk due to suspicious naming, risky file type, sensitive material detection, and policy-risk correlation.'
         recommendation = 'The object has been blocked from trusted storage to prevent malware or credential leakage.'
     elif risk_score >= 45:
         status = 'manual_review'
         level = 'high'
-        summary = 'CloudVault Sentinel detected suspicious indicators and routed the object for a human security review.'
+        summary = 'CloudVault Sentinel detected suspicious indicators and routed the object for a human security review using its policy knowledge base.'
         recommendation = 'A security analyst should verify the content, ownership, and policy risk before approving access.'
     else:
         status = 'approved'
         level = 'low'
         summary = 'CloudVault Sentinel completed a safe-content review and approved the object for trusted storage.'
         recommendation = 'Continue standard monitoring and keep the object within the approved policy baseline.'
+
+    if rag_report['policy_hits']:
+        summary = rag_report['agent_summary']
+        recommendation = '; '.join(rag_report['recommendations'])
 
     return {
         'status': status,
@@ -111,6 +119,8 @@ def _scan_for_sensitive_content(file_name, uploaded_file):
         'recommendations': recommendation,
         'findings': {'factors': factors},
         'quarantine_required': status in ['manual_review', 'blocked'],
+        'rag_policy_hits': rag_report['policy_hits'],
+        'agent_summary': rag_report['agent_summary'],
     }
 
 
@@ -225,6 +235,14 @@ def scan_url_for_safety(raw_url, user):
                 risk_score += min(suspicious_content['risk_score'] // 2, 30)
                 findings.append('downloaded_content_suspicious')
 
+        rag_report = generate_rag_security_report(
+            urllib.parse.urlparse(final_url).path or candidate,
+            'url',
+            findings,
+            url=candidate,
+        )
+        risk_score = min(max(risk_score + rag_report['risk_adjustment'], 0), 100)
+
         if final_url.lower().endswith(('.exe', '.dll', '.bat', '.cmd', '.scr', '.msi', '.apk', '.jar', '.ps1', '.vbs')):
             risk_score += 40
             findings.append('final_url_is_binary')
@@ -243,6 +261,8 @@ def scan_url_for_safety(raw_url, user):
             'redirect_chain': redirect_chain,
             'findings': {'factors': findings},
             'quarantine_required': True,
+            'rag_policy_hits': [],
+            'agent_summary': 'The AI Security Agent flagged the URL as untrustworthy due to a validation failure or suspicious remote behavior.',
         }
         ExternalUrlScan.objects.create(
             owner=user,
@@ -259,6 +279,14 @@ def scan_url_for_safety(raw_url, user):
         )
         return result
 
+    rag_report = generate_rag_security_report(
+        urllib.parse.urlparse(final_url).path or candidate,
+        'url',
+        findings,
+        url=candidate,
+    )
+    risk_score = min(max(risk_score + rag_report['risk_adjustment'], 0), 100)
+
     if risk_score >= 80:
         decision = 'blocked'
         risk_level = 'critical'
@@ -271,6 +299,9 @@ def scan_url_for_safety(raw_url, user):
         decision = 'approved'
         risk_level = 'low'
         summary = 'CloudVault Sentinel validated the URL and approved it for standard access.'
+
+    if rag_report['policy_hits']:
+        summary = rag_report['agent_summary']
 
     if body:
         quarantine_dir = os.path.join(settings.MEDIA_ROOT, 'quarantine')
@@ -314,6 +345,8 @@ def scan_url_for_safety(raw_url, user):
         'findings': {'factors': findings},
         'quarantine_required': decision in ['manual_review', 'blocked'],
         'scan_id': url_scan.id,
+        'rag_policy_hits': rag_report['policy_hits'],
+        'agent_summary': rag_report['agent_summary'],
     }
 
 
@@ -334,6 +367,23 @@ def scan_url_api(request):
         return JsonResponse({'error': str(exc)}, status=400)
 
     return JsonResponse(result)
+
+
+@login_required
+def security_agent_analysis_api(request):
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Only POST requests are allowed.'}, status=405)
+
+    file_name = (request.POST.get('file_name') or request.data.get('file_name') or '').strip()
+    file_type = (request.POST.get('file_type') or request.data.get('file_type') or 'unknown').strip()
+    findings = request.POST.getlist('findings') or (request.data.getlist('findings') if hasattr(request.data, 'getlist') else [])
+    url = (request.POST.get('url') or request.data.get('url') or '').strip()
+
+    if not file_name and not url:
+        return JsonResponse({'error': 'file_name or url is required.'}, status=400)
+
+    report = generate_rag_security_report(file_name or (url or 'remote-url'), file_type or 'url', findings or [], url=url or None)
+    return JsonResponse(report)
 
 
 # Page Template Views
