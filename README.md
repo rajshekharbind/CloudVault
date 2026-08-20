@@ -1,6 +1,6 @@
 
 
-# ☁️ CloudVault
+# ☁️ CloudVault Sentinel
 
 
 ### Secure Cloud File Storage & Collaboration Platform
